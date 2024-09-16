@@ -1,0 +1,31 @@
+{
+  "name": "Jekyll",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "VARIANT": "bookworm",
+      "NODE_VERSION": "lts/*"
+    }
+  },
+
+  "forwardPorts": [
+    // Jekyll server
+    4000,
+    // Live reload server
+    35729
+  ],
+
+  "customizations": {
+    "vscode": {
+      // Add the IDs of extensions you want installed when the container is created.
+      // "extensions": ["shd101wyy.markdown-preview-enhanced"]
+    }
+  },
+  // Use 'postCreateCommand' to run commands after the container is created.
+  "postCreateCommand": "sh .devcontainer/post-create.sh",
+  // "mounts": [
+  // 	"source=${localWorkspaceFolder},target=/srv/jekyll,type=bind,consistency=cached"
+  // ],
+  // Comment out to connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root.
+  "remoteUser": "vscode"
+}
