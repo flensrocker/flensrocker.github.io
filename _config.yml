@@ -21,18 +21,19 @@
 title: flensrocker blogs here!
 email: blog@flensrocker.de
 description: >-
-  Write an awesome description for your new site here. You can edit this
-  line in _config.yml. It will appear in your document head meta (for
-  Google search results) and in your feed.xml site description.
-baseurl: ""
+  I'm a .NET and Angular developer.
+  I've made a lot errors and learned some things.
+  Let's write them down to not make them again...
+baseurl:
 domain: flensrocker.github.io
 url: https://flensrocker.github.io/
 github_username:  flensrocker
 
 # Build settings
 theme: minima
+
 plugins:
-  - jekyll-feed
+#  - jekyll-feed
 
 # Exclude from processing.
 # The following items will not be processed, by default.

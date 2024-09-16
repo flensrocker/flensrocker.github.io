@@ -4,15 +4,20 @@ title: About
 permalink: /about/
 ---
 
-This is the base Jekyll theme. You can find out more info about customizing your Jekyll theme, as well as basic Jekyll usage documentation at [jekyllrb.com](https://jekyllrb.com/)
+My name is Lars and I'm yet another software developer/architect who wants to write a blog...
 
-You can find the source code for Minima at GitHub:
-[jekyll][jekyll-organization] /
-[minima](https://github.com/jekyll/minima)
+My current work includes:
 
-You can find the source code for Jekyll at GitHub:
-[jekyll][jekyll-organization] /
-[jekyll](https://github.com/jekyll/jekyll)
+- C/C++ (Win32 desktop applications)
+- C# ("classic" .NET Framework with WPF, WCF and "raw" SQL Server)
+- C# ("modern" .NET [Core] with Entity Framework Core and AspNet Core)
+- TypeScript (Angular frontend)
 
+Things done in the past:
 
-[jekyll-organization]: https://github.com/jekyll
+- BASIC and Assembler on the legendary Commodore C64
+- PalmOS
+- Windows CE (with .NET Compact Framework)
+
+I really would like to write an own blogging engine or Jekyll theme (as we all do),
+but to save time I guess I will just stick with what is provided out of the box.
