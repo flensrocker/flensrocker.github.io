@@ -106,6 +106,8 @@ And this is the way I like to use it:
 - Write a function which creates the form from that value.
 - If form arrays are involved: write a function which sets the value into an existing form with the right number of items in the array.
 
+You can play with [the code on StackBlitz](https://stackblitz.com/edit/stackblitz-starters-oaqfkh?file=src%2Fforms-utils.ts).
+
 ```typescript
 type MyFormItem = FormGroup<{
   id: FormControl<string>;
