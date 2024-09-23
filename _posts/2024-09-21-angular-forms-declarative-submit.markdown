@@ -68,5 +68,5 @@ That was fun and made me happy - and it makes me happy every time I use it.
 Here's some [StackBlitz code](https://stackblitz.com/edit/stackblitz-starters-mnrnee?file=src%2Fmain.ts) to play with it.
 
 BTW: You know the difference between "not `VALID`" and `INVALID`?
-It's `PENDING`...  
+It's `DISABLED | PENDING`...  
 You have to take that into account when you want your submit button to be disabled if the form is "not valid".
