@@ -126,9 +126,9 @@ But back to the example:
 
 ```typescript
 type User = Immutable<{
-  readonly username: string;
-  readonly displayname: string;
-  readonly claims: { type: string; value: string }[];
+  username: string;
+  displayname: string;
+  claims: { type: string; value: string }[];
 }>;
 ```
 
