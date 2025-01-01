@@ -7,6 +7,10 @@ categories: angular resource
 
 *Draft In Progress*
 
+## Let's build a custom resource!
+
+> Disclaimer: Written when Angular was at version 19.0.5
+
 The new experimental [Resource API](https://angular.dev/api/core/resource) (at point of writing this) is something I really like to play around with.
 It's similar to my ["Signalize async service calls" example]({% link _posts/2024-09-16-angular-signalize-async-service-calls.markdown %}) which I use every day
 (even before there were signals, when we used the [`AsyncPipe`](https://angular.dev/api/common/AsyncPipe) to pull the current state into the template).
@@ -45,6 +49,8 @@ And then we have a "loader" which transforms each request into a stream of respo
 ```ts
 type LoaderFn = (request: TRequest) => Observable<TResponse>;
 ```
+
+These are the first two properties of our `StreamAggregateResourceOptions`.
 
 The core of processing such a request stream (especially when "loading" instead of "posting") is the usual [`switchMap`](https://rxjs.dev/api/index/function/switchMap).
 Whenever a new request gets emitted the `loader` function will switch to a new stream of responses.
@@ -104,5 +110,147 @@ We're allowed to ignore it - if a reload can't be triggered, this function just 
 But of course, we will get to it later, too - because implementing a reload behavior in an observable stream is not that difficult...
 
 ## Connecting the dots
+
+The `ResourceStatus` enum is our map to follow from start to end.
+For each kind of state we'll think about how the stream can get into that state.
+
+In the end we will hopefully get a stream of objects with a `status`, `value` and optional `error`.
+Because every other field in the `Resource<T>` can be derived from these three.
+
+And to bridge the gap between the `Observable` to the `Signal` world,
+we will just subscribe to the observable and push every new value into a writeable signal,
+which we'll expose in the shape of an `Resource<T>`.
+
+### Idle (and Resovled)
+
+This is pretty easy.
+It's the state the resource starts in.
+So we have to think about its initial state regarding the other fields.
+
+```ts
+{
+  status: ResourceStatus.Idle,
+  value: undefined,
+  error: undefined,
+}
+```
+
+There's one thing I don't really like.
+If this is our initial state, then we have to deal with `undefined` values in the template.
+You can always do that with something like
+
+```html
+@if (resource.value(); as val) {
+  <!-- use val inside this block -->
+} @else {
+  <!-- optionally show some "idle" content -->
+}
+```
+
+But most of the time, I will write something like this in the component to avoid `undefined` in the template:
+
+```ts
+protected readonly value = computed(() => {
+  const value = this.resource.value();
+  return value ?? {
+    // some initial value like an empty array when displaying a list of item etc.
+  };
+});
+```
+
+And rumors say the Angular team is considering some kind of ["initial" or "default" value](https://github.com/angular/angular/issues/58840#issuecomment-2500226764).
+
+Since the purpose of this custom resource is to aggregate values over time like
+[`scan`](https://rxjs.dev/api/index/function/scan) or [`Array.prototype.reduce`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/reduce) do
+we will need some initial value anyway - so let's add that to our `StreamAggregateResourceOptions`.
+
+We will also distinguish the actual shape of the resource `TResource` from the kind of values `TResponse` our loader returns.
+With that we get some flexibility inside our aggregate function.
+
+And we will use the "undefined" request as a trigger to re-enter the `Idle` state, so we add that to the type definition.
+
+```ts
+type StreamAggregateResourceOptions<TResource, TRequest, TResponse = TResource> = {
+  readonly initialValue: TResource;
+  readonly request: Observable<TRequest | undefined>;
+  readonly loader: (request: NoInfer<TRequest>) => Observable<TResponse>;
+  readonly aggregate: (accumulator: TResource, current: TResponse) => TResource;
+};
+```
+
+With this we can build the first skeleton of our stream.
+
+```ts
+// the signal we will push our stream values into
+const source = signal({
+  status: ResourceStatus.Idle,
+  value: options.initialValue,
+  error: undefined,
+});
+
+// derived signals from which we will build our Resource<TResource>
+const status = computed(() => source().status);
+const value = computed(() => source().value);
+const error = computed(() => source().error);
+const isLoading = computed(() => status() === ResourceStatus.Loading || status() === ResourceStatus.Reloading);
+const hasValue = () => true; // our resource will always have a value!
+const reload = () => false; // no reload functionality yet
+
+request$.pipe(
+  switchMap((request) => {
+    if (request === undefined) {
+      return of({
+        status: ResourceStatus.Idle,
+        // preserve the last "value" of the resource
+        value: undefined,
+        // clear any old error
+        error: undefined,
+      });
+    }
+
+    return loader(request).pipe(map(response => ({
+      status: ResourceStatus.Resolved,
+      value: response,
+      error: undefined,
+    })));
+  }),
+)
+.subscribe({ // TODO Think about unsubscribe!
+  next: next => {
+    source.update(previous => ({
+      status: next.status,
+      value: next.value ? options.aggregate(previous.value, next.value) : previous.value,
+      error: next.error,
+    }));
+  },
+});
+```
+
+So we accidentally also covered the `Resolved` state... 🤷
+
+### Loading
+
+`TODO`
+
+### Error
+
+`TODO`
+
+### Reloading
+
+`TODO`
+
+### Local
+
+It's possible to extend this example with a `Local` functionality.
+But I haven't needed it yet, so if you do - extend!
+
+### Don't forget to unsubscribe
+
+`TODO`
+
+## Summary
+
+`TODO`
 
 ...to be continued...
