@@ -219,7 +219,9 @@ request$.pipe(
   next: next => {
     source.update(previous => ({
       status: next.status,
-      value: next.value ? options.aggregate(previous.value, next.value) : previous.value,
+      value: next.value === undefined
+        ? previous.value
+        : options.aggregate(previous.value, next.value),
       error: next.error,
     }));
   },
