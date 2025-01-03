@@ -1,11 +1,9 @@
 ---
 layout: post
 title:  "Angular: stream aggregate resource"
-date:   2024-12-29 14:00:00 +0200
+date:   2025-01-03 13:00:00 +0200
 categories: angular resource
 ---
-
-*Draft In Progress*
 
 ## Let's build a custom resource!
 
@@ -185,7 +183,7 @@ With this we can build the startpoint of our stream.
 const source = signal({
   status: ResourceStatus.Idle,
   value: options.initialValue,
-  error: undefined,
+  error: undefined as unknown,
 });
 
 // derived signals from which we will build our Resource<TResource>
@@ -193,10 +191,13 @@ const status = computed(() => source().status);
 const value = computed(() => source().value);
 const error = computed(() => source().error);
 const isLoading = computed(() => status() === ResourceStatus.Loading || status() === ResourceStatus.Reloading);
-const hasValue = () => true; // our resource will always have a value!
-const reload = () => false; // no reload functionality yet
+// our resource will always have a value!
+// type signature is needed, because "() => boolean" is incompatible with Resource.hasValue
+const hasValue = (): this is Resource<TResource> & { value: Signal<TResource>; } => true;
+// no reload functionality for now
+const reload = () => false;
 
-request$.pipe(
+options.request.pipe(
   switchMap((request) => {
     if (request === undefined) {
       return of({
@@ -225,7 +226,7 @@ request$.pipe(
       value: nextValue,
       error: nextState.error,
     };
-  });
+  }),
 });
 ```
 
@@ -235,13 +236,13 @@ Inside the `switchMap` in the code above there's the "else" branch missing.
 That's the place where we will transform the incoming requests into responses utilizing the `loader` function.
 
 ```ts
-request$.pipe(
+options.request.pipe(
   switchMap((request) => {
     if (request === undefined) {
       return ...
     }
 
-    return loader(request).pipe(
+    return options.loader(request).pipe(
       map(response => ({
         status: ResourceStatus.Resolved,
         value: response,
@@ -263,7 +264,7 @@ As rxjs veterans we know the right operator for that: [`startWith`](https://rxjs
 For now we ignore `Reloading`, we'll get to that later...
 
 ```ts
-request$.pipe(
+options.request.pipe(
   switchMap((request) => {
     if (request === undefined) {
       return ...
@@ -303,7 +304,7 @@ Because the hardest thing to think about when working with `catchError` is to de
 In this case we just use the `Error` status.
 
 ```ts
-request$.pipe(
+options.request.pipe(
   switchMap((request) => {
     if (request === undefined) {
       return ...
@@ -348,7 +349,7 @@ The inner observable can emit an error, but the `loader` function itself can thr
 So we have to catch that with the classic `try/catch`.
 
 ```ts
-request$.pipe(
+options.request.pipe(
   switchMap((request) => {
     if (request === undefined) {
       return ...
@@ -379,7 +380,83 @@ request$.pipe(
 .subscribe(...);
 ```
 
-The code gets longer - but with the status on each returned value it's manageable.
+The code gets longer - but there's one trick: refactor!
+
+### Interlude: Refactoring
+
+The inner observable gets somewhat long and there's a lot repetition there.
+In such a case I refactor all these values into small "value generator functions".
+
+First I define a type for the values:
+
+```ts
+type StreamValue<TResponse> = {
+  readonly status: ResourceStatus;
+  readonly value: TResponse | undefined;
+  readonly error: unknown;
+};
+```
+
+And then I create a function for each kind of values - sometimes we have the luck, that some values can just be constants.
+That can be reused and reduce the memory footprint.
+But we may have to be creative with naming to avoid double identifiers.
+
+```ts
+const idleValue: StreamValue<undefined> = {
+  status: ResourceStatus.Idle,
+  value: undefined,
+  error: undefined,
+};
+
+const resolvedValue = <TResponse>(
+  value: TResponse,
+): StreamValue<TResponse> => ({
+  status: ResourceStatus.Resolved,
+  value,
+  error: undefined,
+});
+
+const errorValue = (error: unknown): StreamValue<undefined> => ({
+  status: ResourceStatus.Error,
+  value: undefined,
+  error,
+});
+
+const loadingValue: StreamValue<undefined> = {
+  status: ResourceStatus.Loading,
+  value: undefined,
+  error: undefined,
+};
+
+const reloadingValue: StreamValue<undefined> = {
+  status: ResourceStatus.Reloading,
+  value: undefined,
+  error: undefined,
+};
+```
+
+With this in place we can reduce the code to something like this:
+
+```ts
+options.request.pipe(
+  switchMap((request) => {
+    if (request === undefined) {
+      return of(idleValue);
+    }
+
+    try {
+      return options.loader(request).pipe(
+        map((response) => resolvedValue(response)),
+        startWith(isReload ? reloadingValue : loadingValue),
+        catchError((error) => of(errorValue(error))),
+      );
+    } catch (error) {
+      return of(errorValue(error));
+    }
+  }),
+)
+.subscribe(...);
+```
 
 ### Don't forget to unsubscribe
 
@@ -402,7 +479,7 @@ type StreamAggregateResourceOptions<TResource, TRequest, TResponse = TResource> 
 With this in place we can avoid the typical memory leak:
 
 ```ts
-request$.pipe(
+options.request.pipe(
   switchMap((request) => {
     ...
   }),
@@ -463,6 +540,8 @@ It's a bit tricky to differentiate between a "next request" and "reload is trigg
 But this works for me.
 
 ```ts
+import { Observable, combineLatest, map, scan, startWith } from 'rxjs';
+
 export const combineReload = <T>(
   source: Observable<T>,
   reload: Observable<unknown>,
@@ -517,7 +596,7 @@ const reload = () => {
   return false;
 };
 
-combineReload(request$, reload$).pipe(
+combineReload(options.request, reload$).pipe(
   switchMap(({ value: request, isReload }) => {
     if (request === undefined) {
       return ...
@@ -539,6 +618,419 @@ combineReload(request$, reload$).pipe(
 
 ## Summary
 
-TODO: full code sample
+And here's the full code.
+It seems long, but it's doing also a lot.
+But not so much we can't reason about it.
 
-...to be continued...
+- We start with a stream of requests.
+- We transformed them into a stream of responses.
+- We aggregate all responses into one resource value.
+- When we know that the stream is "loading" we reflect that into the resource's state.
+- And we catch all errors (we can think of) and also use the resource state to report them to the user.
+- And as a sideeffect we got some nice litte `combineReload` utility.
+
+Now that we know how to create a custom resource nothing will stop us to create even more.
+
+Have fun!
+
+```ts
+import {
+  DestroyRef,
+  Resource,
+  ResourceStatus,
+  Signal,
+  computed,
+  signal,
+  untracked,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+
+import {
+  Subject,
+  Observable,
+  catchError,
+  map,
+  of,
+  startWith,
+  switchMap,
+} from 'rxjs';
+
+import { combineReload } from './combine-reload';
+
+export type StreamAggregateResourceOptions<
+  TResource,
+  TRequest,
+  TResponse = TResource,
+> = {
+  readonly initialValue: TResource;
+  readonly request: Observable<TRequest | undefined>;
+  readonly loader: (request: NoInfer<TRequest>) => Observable<TResponse>;
+  readonly aggregate: (accumulator: TResource, current: TResponse) => TResource;
+  readonly destroyRef?: DestroyRef;
+};
+
+type StreamValue<TResponse> = {
+  readonly status: ResourceStatus;
+  readonly value: TResponse | undefined;
+  readonly error: unknown;
+};
+
+const idleValue: StreamValue<undefined> = {
+  status: ResourceStatus.Idle,
+  value: undefined,
+  error: undefined,
+};
+
+const resolvedValue = <TResponse>(
+  value: TResponse,
+): StreamValue<TResponse> => ({
+  status: ResourceStatus.Resolved,
+  value,
+  error: undefined,
+});
+
+const errorValue = (error: unknown): StreamValue<undefined> => ({
+  status: ResourceStatus.Error,
+  value: undefined,
+  error,
+});
+
+const loadingValue: StreamValue<undefined> = {
+  status: ResourceStatus.Loading,
+  value: undefined,
+  error: undefined,
+};
+
+const reloadingValue: StreamValue<undefined> = {
+  status: ResourceStatus.Reloading,
+  value: undefined,
+  error: undefined,
+};
+
+/**
+ * Aggregates all responses from the loader into the value of the resource.
+ * A new request triggers a new call of the loader.
+ * If not called in an injection context a DestroyRef must be provided.
+ * The reload method will only work if the resource is in error state.
+ */
+export const streamAggregateResource = <
+  TResource,
+  TRequest,
+  TResponse = TResource,
+>(
+  options: StreamAggregateResourceOptions<TResource, TRequest, TResponse>,
+): Resource<TResource> => {
+  const source = signal({
+    status: ResourceStatus.Idle,
+    value: options.initialValue,
+    error: undefined as unknown,
+  });
+
+  const status = computed(() => source().status);
+  const value = computed(() => source().value);
+  const error = computed(() => source().error);
+  const isLoading = computed(
+    () =>
+      status() === ResourceStatus.Loading ||
+      status() === ResourceStatus.Reloading,
+  );
+  const hasValue = (): this is Resource<TResource> & {
+    value: Signal<TResource>;
+  } => true;
+
+  const reload$ = new Subject<void>();
+  const reload = () => {
+    if (untracked(status) === ResourceStatus.Error) {
+      reload$.next();
+      return true;
+    }
+    return false;
+  };
+
+  combineReload(options.request, reload$)
+    .pipe(
+      switchMap(({ value: request, isReload }) => {
+        if (request === undefined) {
+          return of(idleValue);
+        }
+
+        try {
+          return options.loader(request).pipe(
+            map((response) => resolvedValue(response)),
+            startWith(isReload ? reloadingValue : loadingValue),
+            catchError((error) => of(errorValue(error))),
+          );
+        } catch (error) {
+          return of(errorValue(error));
+        }
+      }),
+      takeUntilDestroyed(options.destroyRef),
+    )
+    .subscribe({
+      next: (nextState) =>
+        source.update((previous) => {
+          const nextValue =
+            nextState.value === undefined
+              ? previous.value
+              : options.aggregate(previous.value, nextState.value);
+
+          return {
+            status: nextState.status,
+            value: nextValue,
+            error: nextState.error,
+          };
+        }),
+      error: (error) =>
+        source.update((previous) => ({
+          ...previous,
+          status: ResourceStatus.Error,
+          error,
+        })),
+      complete: () =>
+        source.update((previous) => ({
+          ...previous,
+          status: ResourceStatus.Idle,
+        })),
+    });
+
+  return {
+    status,
+    value,
+    error,
+    isLoading,
+    hasValue,
+    reload,
+  };
+};
+```
+
+## Bonus: Tests
+
+Here are some tests - we use the ability of observables to be synchronous, so they are easy to write.
+They are not exhaustive, but a good starting point for your own tests.
+
+```ts
+import { DestroyRef, ResourceStatus, untracked } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+
+import { NEVER, Observable, Subject, from, of } from 'rxjs';
+
+import { streamAggregateResource } from './stream-aggregate-resource';
+
+describe('streamAggreateResource', () => {
+  it('should have the initialValue before the first request', () => {
+    const initialValue: readonly string[] = [];
+
+    const resource = streamAggregateResource({
+      initialValue,
+      request: NEVER,
+      loader: (request) => of(`response to ${request}`),
+      aggregate: (acc, current) => [...acc, current],
+      destroyRef: TestBed.inject(DestroyRef),
+    });
+
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Idle);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual(initialValue);
+  });
+
+  it('should be in loading state while loader processes request', () => {
+    const expectedRequest = 'request';
+    const initialValue: readonly string[] = [];
+
+    const resource = streamAggregateResource({
+      initialValue,
+      request: of(expectedRequest),
+      loader: (actualRequest): Observable<string> => {
+        expect(actualRequest).toEqual(expectedRequest);
+        return NEVER;
+      },
+      aggregate: (acc, current) => [...acc, current],
+      destroyRef: TestBed.inject(DestroyRef),
+    });
+
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Loading);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual(initialValue);
+  });
+
+  it('should be in resolved state after loader returned response', () => {
+    const expectedRequest = 'request';
+    const expectedResponse = 'response';
+    const initialValue: readonly string[] = [];
+
+    const resource = streamAggregateResource({
+      initialValue,
+      request: of(expectedRequest),
+      loader: (actualRequest): Observable<string> => {
+        expect(actualRequest).toEqual(expectedRequest);
+        return of(expectedResponse);
+      },
+      aggregate: (acc, current) => [...acc, current],
+      destroyRef: TestBed.inject(DestroyRef),
+    });
+
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Resolved);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual([expectedResponse]);
+  });
+
+  it('should aggregate all values returned by the loader', () => {
+    const expectedRequest = 'request';
+    const expectedResponses = ['response 1', 'response 2', 'response 3'];
+    const initialValue: readonly string[] = [];
+
+    const resource = streamAggregateResource({
+      initialValue,
+      request: of(expectedRequest),
+      loader: (actualRequest): Observable<string> => {
+        expect(actualRequest).toEqual(expectedRequest);
+        return from(expectedResponses);
+      },
+      aggregate: (acc, current) => [...acc, current],
+      destroyRef: TestBed.inject(DestroyRef),
+    });
+
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Resolved);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual(expectedResponses);
+  });
+
+  it('should be in error state when loader throws', () => {
+    const expectedRequest = 'request';
+    const initialValue: readonly string[] = [];
+    const error = 'error';
+
+    const resource = streamAggregateResource({
+      initialValue,
+      request: of(expectedRequest),
+      loader: (actualRequest): Observable<string> => {
+        expect(actualRequest).toEqual(expectedRequest);
+        throw error;
+      },
+      aggregate: (acc, current) => [...acc, current],
+      destroyRef: TestBed.inject(DestroyRef),
+    });
+
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Error);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual(initialValue);
+    expect(untracked(resource.error)).toEqual(error);
+  });
+
+  it('should be in reloading state when the resource is reloaded', () => {
+    const request = new Subject<string>();
+    const expectedRequest = 'request';
+    const initialValue: readonly string[] = [];
+    const error = 'error';
+
+    let loaderState = 0;
+    const resource = streamAggregateResource({
+      initialValue,
+      request,
+      loader: (actualRequest): Observable<string> => {
+        if (loaderState === 0) {
+          loaderState++;
+          throw error;
+        }
+
+        expect(actualRequest).toEqual(expectedRequest);
+        return NEVER;
+      },
+      aggregate: (acc, current) => [...acc, current],
+      destroyRef: TestBed.inject(DestroyRef),
+    });
+
+    request.next(expectedRequest);
+
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Error);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual(initialValue);
+    expect(untracked(resource.error)).toEqual(error);
+
+    const isReloading = resource.reload();
+
+    expect(isReloading).toBeTruthy();
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Reloading);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual(initialValue);
+    expect(untracked(resource.error)).toBeUndefined();
+  });
+
+  it('should be in loading state after reloading when a new request is emitted', () => {
+    const request = new Subject<string>();
+    const expectedRequest = 'request';
+    const initialValue: readonly string[] = [];
+    const error = 'error';
+
+    let loaderState = 0;
+    const resource = streamAggregateResource({
+      initialValue,
+      request,
+      loader: (actualRequest): Observable<string> => {
+        if (loaderState === 0) {
+          loaderState++;
+          throw error;
+        }
+
+        expect(actualRequest).toEqual(expectedRequest);
+        return NEVER;
+      },
+      aggregate: (acc, current) => [...acc, current],
+      destroyRef: TestBed.inject(DestroyRef),
+    });
+
+    request.next(expectedRequest);
+    resource.reload();
+    request.next(expectedRequest);
+
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Loading);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual(initialValue);
+    expect(untracked(resource.error)).toBeUndefined();
+  });
+
+  it('should be in idle state without error when the request is undefined', () => {
+    const request = new Subject<string | null | undefined>();
+    const expectedRequest = 'request';
+    const expectedResponse = 'response';
+    const initialValue: readonly string[] = [];
+    const error = 'error';
+
+    const resource = streamAggregateResource({
+      initialValue,
+      request,
+      loader: (actualRequest): Observable<string> => {
+        if (actualRequest === null) {
+          throw error;
+        }
+
+        expect(actualRequest).toEqual(expectedRequest);
+        return of(expectedResponse);
+      },
+      aggregate: (acc, current) => [...acc, current],
+      destroyRef: TestBed.inject(DestroyRef),
+    });
+
+    request.next(expectedRequest);
+
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Resolved);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual([expectedResponse]);
+
+    request.next(null);
+
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Error);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual([expectedResponse]);
+    expect(untracked(resource.error)).toEqual(error);
+
+    request.next(undefined);
+
+    expect(untracked(resource.status)).toEqual(ResourceStatus.Idle);
+    expect(untracked(resource.hasValue)).toBeTruthy();
+    expect(untracked(resource.value)).toEqual([expectedResponse]);
+    expect(untracked(resource.error)).toBeUndefined();
+  });
+});
+```
