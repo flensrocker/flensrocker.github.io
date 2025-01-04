@@ -447,7 +447,7 @@ options.request.pipe(
     try {
       return options.loader(request).pipe(
         map((response) => resolvedValue(response)),
-        startWith(isReload ? reloadingValue : loadingValue),
+        startWith(loadingValue),
         catchError((error) => of(errorValue(error))),
       );
     } catch (error) {
@@ -599,18 +599,18 @@ const reload = () => {
 combineReload(options.request, reload$).pipe(
   switchMap(({ value: request, isReload }) => {
     if (request === undefined) {
-      return ...
+      return of(idleValue);
     }
 
-    return loader(request).pipe(
-      map(response => ({
-        ...
-      })),
-      startWith({
-        status: isReload ? ResourceStatus.Reloading : ResourceStatus.Loading,
-        value: undefined,
-        error: undefined,
-      }));
+    try {
+      return options.loader(request).pipe(
+        map((response) => resolvedValue(response)),
+        startWith(isReload ? reloadingValue : loadingValue),
+        catchError((error) => of(errorValue(error))),
+      );
+    } catch (error) {
+      return of(errorValue(error));
+    }
   }),
 )
 .subscribe(...);
