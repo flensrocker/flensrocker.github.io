@@ -89,6 +89,7 @@ And a simple template, just to get the idea.
 <button type="button" (click)="clicked$.next()">Click me!</button>
 
 <div>
+{% raw %}
   @if (data$ | async; as data) {
     @if (data.loading) {
       loading...
@@ -98,6 +99,7 @@ And a simple template, just to get the idea.
       {{ data.value }}
     }
   }
+{% endraw %}
 </div>
 ```
 
