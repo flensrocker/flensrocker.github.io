@@ -33,15 +33,16 @@ and let the button's click handler call the `next` methond on that subject:
 <button type="button" (click)="clicked$.next()">Click me!</button>
 ```
 
-I added the not really neccessary, but in my opinion, important modifiers `protected` and `readonly`,
-because you don't want to expose this property outside of your component
-and you don't want to reassign it with another subject instance,
-because that would break derived observables.
+> _Note:_ I added the not really neccessary, but in my opinion, important modifiers `protected` and `readonly`,
+> because you don't want to expose this property outside of your component
+> and you don't want to reassign it with another subject instance,
+> because that would break derived observables.
 
 Having this in place, you can then use the declarative paradigm to define whatever should happen, when the button is clicked.
 You can map the click to a request and feed it into some kind of resource, to let it fetch some data.
 
-Here's a little example with the least of error handling (not handling errors is not an option, because the observable then stops working).
+Here's a little example with the least amount of error handling
+(not handling errors is not an option, because the observable then stops working).
 
 ```ts
 type Data<T> = Readonly<{
@@ -88,8 +89,15 @@ And a simple template, just to get the idea.
 <button type="button" (click)="clicked$.next()">Click me!</button>
 
 <div>
-  @if (data$ | async; as data) { @if (data.loading) { loading... } @else if
-  (data.error) { {{ data.error | json }} } @else { {{ data.value }} } }
+  @if (data$ | async; as data) {
+    @if (data.loading) {
+      loading...
+    } @else if (data.error) {
+      {{ data.error | json }}
+    } @else {
+      {{ data.value }}
+    }
+  }
 </div>
 ```
 
@@ -132,7 +140,7 @@ And retrieve and use it in the component.
 ```ts
 protected readonly btn = viewChild("btn", { read: ElementRef });
 
-protected readonly data$: Observable<Data<string>> = toEvent(this.btn, "click").pipe(...);
+protected readonly data$ = toEvent(this.btn, "click").pipe(...);
 ```
 
 ## Summary
@@ -165,3 +173,8 @@ But after all both ways are not that different from each other.
 So use, whatever you and your team are comfortable with!
 
 You can find the code in [this StackBlitz](https://stackblitz.com/edit/stackblitz-starters-y445jnks?file=src%2Fmain.ts).
+
+Followup exercises for the reader:
+
+- Create a `toEvents` function, which can consume a `Signal<readonly ElementRef[]>` returned by `viewChildren` and merge all events into one stream.
+- Adapt this concept to consume from outputs of components.
